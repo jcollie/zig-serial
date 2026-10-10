@@ -114,6 +114,10 @@ const ECHONL: Flag = 0x10;
 const ISIG: Flag = 0x80;
 const ICANON: Flag = 0x100;
 const IEXTEN: Flag = 0x400;
+/// Not a setting but kernel state: the BSD line discipline sets it on
+/// switching into canonical mode, so that input already received is
+/// processed again, and carries it across `tcsetattr`.
+const PENDIN: Flag = 0x20000000;
 
 // `c_cc` indices
 const VSTART = 12;
@@ -302,7 +306,9 @@ pub const Port = struct {
         var original: Termios = undefined;
         switch (c.errno(tcgetattr(fd, &original))) {
             .SUCCESS => {},
-            .NOTTY, .INVAL, .OPNOTSUPP => return error.NotASerialPort,
+            // macOS's memory devices, /dev/null among them, answer every
+            // ioctl they do not know with ENODEV rather than ENOTTY.
+            .NOTTY, .INVAL, .OPNOTSUPP, .NODEV => return error.NotASerialPort,
             .IO => return error.InputOutput,
             else => return error.Unexpected,
         }
@@ -648,7 +654,8 @@ test "the original settings come back on close" {
     var after: Termios = undefined;
     try testing.expectEqual(@as(c_int, 0), tcgetattr(held, &after));
     try testing.expectEqual(before.cflag, after.cflag);
-    try testing.expectEqual(before.lflag, after.lflag);
+    // Putting back a canonical-mode original sets PENDIN on macOS.
+    try testing.expectEqual(before.lflag & ~PENDIN, after.lflag & ~PENDIN);
     try testing.expectEqual(before.ospeed, after.ospeed);
 }
 
