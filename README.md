@@ -84,9 +84,17 @@ terminal among them — can use it.
 
 ## Repository
 
+The canonical repository is on my Forgejo instance, and Tangled carries a
+mirror of it:
+
 ```console
 git clone https://git.jcollie.dev/jeff/zig-serial.git
 ```
+
+- Forgejo: <https://git.jcollie.dev/jeff/zig-serial>
+- Tangled: <https://tangled.org/jcollie.dev/zig-serial>
+
+CI and the published documentation come from the Forgejo repository.
 
 ## License
 
