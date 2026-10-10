@@ -153,6 +153,109 @@ fn ok(b: BOOL) bool {
     return @backingInt(b) != 0;
 }
 
+/// Writes `settings` into `dcb`, leaving alone what they do not touch. Kept
+/// apart from `SetCommState` so that it can be tested without a port. `dtr`
+/// and `rts` are the levels this port last set, which a `DCB` would
+/// otherwise put back to whatever it was opened with.
+fn encode(dcb: *Dcb, settings: Settings, dtr: bool, rts: bool) types.ConfigureError!void {
+    dcb.BaudRate = settings.baud;
+    dcb.ByteSize = @backingInt(settings.data_bits);
+    dcb.Parity = switch (settings.parity) {
+        .none => NOPARITY,
+        .even => EVENPARITY,
+        .odd => ODDPARITY,
+        .mark => MARKPARITY,
+        .space => SPACEPARITY,
+    };
+    dcb.StopBits = switch (settings.stop_bits) {
+        .one => ONESTOPBIT,
+        .one_and_half => ONE5STOPBITS,
+        .two => TWOSTOPBITS,
+    };
+
+    var f = dcb.flags;
+    // Win32 accepts no other value.
+    f.fBinary = true;
+    f.fParity = settings.parity != .none;
+    // No substitutions, no dropped NULs, and no stopping dead on a
+    // framing error until somebody calls ClearCommError.
+    f.fErrorChar = false;
+    f.fNull = false;
+    f.fAbortOnError = false;
+    f.fDsrSensitivity = false;
+    f.fOutxDsrFlow = false;
+    f.fTXContinueOnXoff = false;
+    f.fDtrControl = if (dtr) DTR_CONTROL_ENABLE else DTR_CONTROL_DISABLE;
+    switch (settings.flow) {
+        .none => {
+            f.fOutxCtsFlow = false;
+            f.fOutX = false;
+            f.fInX = false;
+            f.fRtsControl = if (rts) RTS_CONTROL_ENABLE else 0;
+        },
+        .rts_cts => {
+            f.fOutxCtsFlow = true;
+            f.fOutX = false;
+            f.fInX = false;
+            f.fRtsControl = RTS_CONTROL_HANDSHAKE;
+        },
+        .xon_xoff => {
+            f.fOutxCtsFlow = false;
+            f.fOutX = true;
+            f.fInX = true;
+            f.fRtsControl = if (rts) RTS_CONTROL_ENABLE else 0;
+            dcb.XonChar = 0x11;
+            dcb.XoffChar = 0x13;
+        },
+        .other => return error.UnsupportedSetting,
+    }
+    dcb.flags = f;
+    dcb.ErrorChar = 0;
+    dcb.EofChar = 0;
+    dcb.EvtChar = 0;
+}
+
+fn decode(dcb: Dcb) Settings {
+    const f = dcb.flags;
+    const rtscts = f.fOutxCtsFlow and f.fRtsControl == RTS_CONTROL_HANDSHAKE;
+    const xonxoff = f.fOutX and f.fInX;
+    return .{
+        .baud = dcb.BaudRate,
+        .data_bits = switch (dcb.ByteSize) {
+            5 => .five,
+            6 => .six,
+            7 => .seven,
+            else => .eight,
+        },
+        .parity = switch (dcb.Parity) {
+            ODDPARITY => .odd,
+            EVENPARITY => .even,
+            MARKPARITY => .mark,
+            SPACEPARITY => .space,
+            else => .none,
+        },
+        .stop_bits = switch (dcb.StopBits) {
+            ONE5STOPBITS => .one_and_half,
+            TWOSTOPBITS => .two,
+            else => .one,
+        },
+        .flow = if (f.fOutxDsrFlow)
+            .other
+        else if (rtscts and !f.fOutX and !f.fInX)
+            .rts_cts
+        else if (xonxoff and !f.fOutxCtsFlow)
+            .xon_xoff
+        else if (!f.fOutxCtsFlow and !f.fOutX and !f.fInX)
+            .none
+        else
+            .other,
+        // Windows lowers DTR on close whatever is asked, and a port is
+        // never waiting on carrier.
+        .hang_up_on_close = true,
+        .local = true,
+    };
+}
+
 pub const Port = struct {
     handle: Handle,
     original_dcb: Dcb,
@@ -218,61 +321,7 @@ pub const Port = struct {
         var dcb: Dcb = .{};
         if (!ok(GetCommState(port.handle, &dcb))) return error.InputOutput;
 
-        dcb.BaudRate = settings.baud;
-        dcb.ByteSize = @backingInt(settings.data_bits);
-        dcb.Parity = switch (settings.parity) {
-            .none => NOPARITY,
-            .even => EVENPARITY,
-            .odd => ODDPARITY,
-            .mark => MARKPARITY,
-            .space => SPACEPARITY,
-        };
-        dcb.StopBits = switch (settings.stop_bits) {
-            .one => ONESTOPBIT,
-            .one_and_half => ONE5STOPBITS,
-            .two => TWOSTOPBITS,
-        };
-
-        var f = dcb.flags;
-        // Win32 accepts no other value.
-        f.fBinary = true;
-        f.fParity = settings.parity != .none;
-        // No substitutions, no dropped NULs, and no stopping dead on a
-        // framing error until somebody calls ClearCommError.
-        f.fErrorChar = false;
-        f.fNull = false;
-        f.fAbortOnError = false;
-        f.fDsrSensitivity = false;
-        f.fOutxDsrFlow = false;
-        f.fTXContinueOnXoff = false;
-        f.fDtrControl = if (port.dtr) DTR_CONTROL_ENABLE else DTR_CONTROL_DISABLE;
-        switch (settings.flow) {
-            .none => {
-                f.fOutxCtsFlow = false;
-                f.fOutX = false;
-                f.fInX = false;
-                f.fRtsControl = if (port.rts) RTS_CONTROL_ENABLE else 0;
-            },
-            .rts_cts => {
-                f.fOutxCtsFlow = true;
-                f.fOutX = false;
-                f.fInX = false;
-                f.fRtsControl = RTS_CONTROL_HANDSHAKE;
-            },
-            .xon_xoff => {
-                f.fOutxCtsFlow = false;
-                f.fOutX = true;
-                f.fInX = true;
-                f.fRtsControl = if (port.rts) RTS_CONTROL_ENABLE else 0;
-                dcb.XonChar = 0x11;
-                dcb.XoffChar = 0x13;
-            },
-            .other => return error.UnsupportedSetting,
-        }
-        dcb.flags = f;
-        dcb.ErrorChar = 0;
-        dcb.EofChar = 0;
-        dcb.EvtChar = 0;
+        try encode(&dcb, settings, port.dtr, port.rts);
 
         if (!ok(SetCommState(port.handle, &dcb))) return switch (GetLastError()) {
             ERROR_INVALID_PARAMETER => error.UnsupportedBaud,
@@ -283,44 +332,7 @@ pub const Port = struct {
     pub fn current(port: *Port) types.ConfigureError!Settings {
         var dcb: Dcb = .{};
         if (!ok(GetCommState(port.handle, &dcb))) return error.InputOutput;
-        const f = dcb.flags;
-        const rtscts = f.fOutxCtsFlow and f.fRtsControl == RTS_CONTROL_HANDSHAKE;
-        const xonxoff = f.fOutX and f.fInX;
-        return .{
-            .baud = dcb.BaudRate,
-            .data_bits = switch (dcb.ByteSize) {
-                5 => .five,
-                6 => .six,
-                7 => .seven,
-                else => .eight,
-            },
-            .parity = switch (dcb.Parity) {
-                ODDPARITY => .odd,
-                EVENPARITY => .even,
-                MARKPARITY => .mark,
-                SPACEPARITY => .space,
-                else => .none,
-            },
-            .stop_bits = switch (dcb.StopBits) {
-                ONE5STOPBITS => .one_and_half,
-                TWOSTOPBITS => .two,
-                else => .one,
-            },
-            .flow = if (f.fOutxDsrFlow)
-                .other
-            else if (rtscts and !f.fOutX and !f.fInX)
-                .rts_cts
-            else if (xonxoff and !f.fOutxCtsFlow)
-                .xon_xoff
-            else if (!f.fOutxCtsFlow and !f.fOutX and !f.fInX)
-                .none
-            else
-                .other,
-            // Windows lowers DTR on close whatever is asked, and a port is
-            // never waiting on carrier.
-            .hang_up_on_close = true,
-            .local = true,
-        };
+        return decode(dcb);
     }
 
     pub fn read(port: *Port, buf: []u8) types.ReadError!usize {
@@ -386,3 +398,72 @@ pub const Port = struct {
         }
     }
 };
+
+// ---------------------------------------------------------------------------
+// Tests. A Windows machine without a serial port -- a CI runner, say -- can
+// still check the conversion to and from the `DCB`, and that what is not a
+// port is refused.
+// ---------------------------------------------------------------------------
+
+const testing = std.testing;
+
+test "the DCB bitfield is where the SDK puts it" {
+    try testing.expectEqual(0, @bitOffsetOf(Flags, "fBinary"));
+    try testing.expectEqual(2, @bitOffsetOf(Flags, "fOutxCtsFlow"));
+    try testing.expectEqual(4, @bitOffsetOf(Flags, "fDtrControl"));
+    try testing.expectEqual(8, @bitOffsetOf(Flags, "fOutX"));
+    try testing.expectEqual(11, @bitOffsetOf(Flags, "fNull"));
+    try testing.expectEqual(12, @bitOffsetOf(Flags, "fRtsControl"));
+    try testing.expectEqual(14, @bitOffsetOf(Flags, "fAbortOnError"));
+}
+
+test "every setting survives encoding and decoding" {
+    // Windows reports `hang_up_on_close` and `local` as always on, so they
+    // keep their defaults here.
+    const cases = [_]Settings{
+        .{},
+        .{ .baud = 9600, .data_bits = .seven, .parity = .even, .stop_bits = .two },
+        .{ .baud = 300, .data_bits = .five, .parity = .odd, .stop_bits = .one_and_half, .flow = .rts_cts },
+        .{ .baud = 31250, .data_bits = .six, .parity = .mark, .flow = .xon_xoff },
+        .{ .baud = 4_000_000, .parity = .space },
+    };
+    for (cases) |want| {
+        var dcb: Dcb = .{};
+        try encode(&dcb, want, true, true);
+        try testing.expectEqual(want, decode(dcb));
+        // Raw: no substitutions, no dropped NULs, no stopping on an error.
+        try testing.expect(dcb.flags.fBinary);
+        try testing.expect(!dcb.flags.fNull);
+        try testing.expect(!dcb.flags.fErrorChar);
+        try testing.expect(!dcb.flags.fAbortOnError);
+        try testing.expectEqual(want.parity != .none, dcb.flags.fParity);
+    }
+}
+
+test "the modem lines keep the levels this port last set" {
+    var dcb: Dcb = .{};
+    try encode(&dcb, .{}, false, false);
+    try testing.expectEqual(DTR_CONTROL_DISABLE, dcb.flags.fDtrControl);
+    try testing.expectEqual(0, dcb.flags.fRtsControl);
+
+    // Except that hardware flow control takes RTS over.
+    try encode(&dcb, .{ .flow = .rts_cts }, false, false);
+    try testing.expectEqual(RTS_CONTROL_HANDSHAKE, dcb.flags.fRtsControl);
+}
+
+test "what cannot be expressed is refused" {
+    var dcb: Dcb = .{};
+    try testing.expectError(error.UnsupportedSetting, encode(&dcb, .{ .flow = .other }, true, true));
+}
+
+test "DSR flow control left by another program reads as other" {
+    var dcb: Dcb = .{};
+    try encode(&dcb, .{}, true, true);
+    dcb.flags.fOutxDsrFlow = true;
+    try testing.expectEqual(types.Flow.other, decode(dcb).flow);
+}
+
+test "what is not a serial port is refused" {
+    try testing.expectError(error.NotASerialPort, Port.open("NUL", .{}, .{}));
+    try testing.expectError(error.FileNotFound, Port.open("COM255", .{}, .{}));
+}

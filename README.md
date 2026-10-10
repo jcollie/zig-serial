@@ -56,8 +56,9 @@ The API documentation is generated from the doc comments and published at
   the source rather than taken from a bindings package. Every rate, every
   parity, and one and a half stop bits are ordinary values. DTR and RTS cannot
   be read back on Windows, so `modem` reports them as this port last set them.
-  This backend is compiled by `zig build check` but has not been run against
-  hardware.
+  Its tests run on GitHub's Windows runners, which have no serial port, so
+  they cover the conversion to and from the `DCB` and the refusal of what is
+  not a port; the backend has not been run against hardware.
 - **macOS, FreeBSD, NetBSD, OpenBSD and DragonFly.** One backend, on the libc
   `termios` all five inherit from 4.4BSD, so a program for these links libc;
   the module asks for it on its own. A `speed_t` there is the rate itself, so
@@ -65,9 +66,10 @@ The API documentation is generated from the doc comments and published at
   `tcsetattr` is asked again through `IOSSIOSPEED`, which takes two calls
   rather than one. There is no `CMSPAR`, so mark and space parity are refused.
   On macOS, open the `/dev/cu.*` node rather than the dial-in `/dev/tty.*`.
-  This backend is compiled by `zig build check` for all five, and its tests
-  are run on FreeBSD in a virtual machine (see below); on the others they
-  have not yet been run.
+  This backend is compiled by `zig build check` for all five. Its tests run
+  on FreeBSD in a virtual machine and on GitHub's macOS runners, both arm64
+  and Intel (see below); on NetBSD, OpenBSD and DragonFly they have not yet
+  been run.
 
 ## Testing
 
@@ -84,6 +86,10 @@ hands the machine a NoCloud `cidata` drive holding the test binary and a
 first boot; it runs the tests and powers the machine off, and the check passes
 if the serial console says they passed. It needs no network and nothing logs
 in. The CI runs it on every push.
+
+macOS and Windows are tested on GitHub, whose runners are native machines of
+both: every push to the GitHub mirror runs `zig build test` on arm64 and Intel
+macOS and on Windows, from `.github/workflows/test.yaml`.
 
 `zig build test-exe -Dtarget=...` installs the test binary for any target as
 `zig-out/bin/serial-test`, to be carried to a machine that can run it — a Mac,
@@ -107,8 +113,8 @@ terminal among them — can use it.
 
 ## Repository
 
-The canonical repository is on my Forgejo instance, and Tangled carries a
-mirror of it:
+The canonical repository is on my Forgejo instance, and Tangled and GitHub
+carry mirrors of it:
 
 ```console
 git clone https://git.jcollie.dev/jeff/zig-serial.git
@@ -116,8 +122,11 @@ git clone https://git.jcollie.dev/jeff/zig-serial.git
 
 - Forgejo: <https://git.jcollie.dev/jeff/zig-serial>
 - Tangled: <https://tangled.org/jcollie.dev/zig-serial>
+- GitHub: <https://github.com/jcollie/zig-serial>
 
-CI and the published documentation come from the Forgejo repository.
+CI for Linux and FreeBSD, and the published documentation, come from the
+Forgejo repository; the GitHub mirror is there for its macOS and Windows
+runners.
 
 ## License
 

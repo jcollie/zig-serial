@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: © 2026 Jeffrey C. Ollie <jeff@ocjtech.us>
+# SPDX-License-Identifier: MIT
+
+# The GitHub mirror exists for the runners Forgejo does not have: native macOS
+# and Windows, where the tests can run rather than only compile. Linux and
+# FreeBSD are tested by the Forgejo workflow in .forgejo/workflows, which
+# Forgejo reads in preference to this directory.
+
+name: test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest # aarch64
+          - macos-15-intel # x86_64
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+
+      - name: Test
+        run: zig build test --summary all
