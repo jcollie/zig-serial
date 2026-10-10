@@ -128,6 +128,11 @@ CI for Linux and FreeBSD, and the published documentation, come from the
 Forgejo repository; the GitHub mirror is there for its macOS and Windows
 runners.
 
+## Issues and pull requests
+
+Report issues and send pull requests on the Tangled mirror,
+<https://tangled.org/jcollie.dev/zig-serial>.
+
 ## License
 
 MIT; see [LICENSES/MIT.txt](LICENSES/MIT.txt). The project follows the
