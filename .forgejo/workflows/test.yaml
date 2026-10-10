@@ -24,8 +24,8 @@ jobs:
       - name: Test
         run: nix develop -c zig build test --summary all
 
-      # The Windows backend and a second Linux architecture, compiled but not
-      # run, along with the documentation server.
+      # Every other platform, compiled but not run, along with the
+      # documentation server.
       - name: Build everything that is not built by the steps above
         run: nix develop -c zig build check --summary all
 
@@ -33,6 +33,11 @@ jobs:
       # in the sandbox.
       - name: Build the package
         run: nix build --print-build-logs
+
+      # The tests cross-compiled for FreeBSD and run in a FreeBSD virtual
+      # machine, which needs the KVM this runner tier provides.
+      - name: Test on FreeBSD
+        run: nix build .#checks.x86_64-linux.freebsd --print-build-logs
 
       - name: Push to the cache
         if: ${{ !cancelled() && forge.ref == 'refs/heads/main' }}

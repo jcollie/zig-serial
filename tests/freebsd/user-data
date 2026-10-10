@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: © 2026 Jeffrey C. Ollie <jeff@ocjtech.us>
+# SPDX-License-Identifier: MIT
+
+# Run by nuageinit on the first boot, late in rc and after it has unmounted
+# the config drive, so the drive is mounted again here to get at the tests
+# beside this script. Everything printed reaches the serial console, which is
+# what the host reads the verdict from.
+
+set -u
+
+mkdir -p /media/tests
+mount -t cd9660 /dev/iso9660/* /media/tests
+
+echo "zig-serial-freebsd: $(uname -a)"
+cd /tmp
+/media/tests/serial-test
+echo "zig-serial-freebsd: exit $?"
+
+shutdown -p now

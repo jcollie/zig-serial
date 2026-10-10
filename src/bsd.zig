@@ -556,7 +556,7 @@ test "what cannot be expressed is refused" {
     try testing.expectError(error.UnsupportedSetting, encode(&t, .{ .flow = .other }));
 }
 
-test "half of Darwin's hardware flow control is a combination with no name" {
+test "half of a two-bit CRTSCTS is a combination with no name" {
     if (CRTSCTS == 0x10000) return error.SkipZigTest;
     var t = std.mem.zeroes(Termios);
     try encode(&t, .{});
@@ -630,14 +630,23 @@ test "the original settings come back on close" {
     var pair = try PtyPair.open();
     defer pair.close();
 
+    // Read through a second descriptor on the slave, held open throughout,
+    // rather than through the master: FreeBSD's master reports a `c_cflag`
+    // of zero until the slave has first been opened.
+    var path_buf: [64:0]u8 = @splat(0);
+    @memcpy(path_buf[0..pair.path().len], pair.path());
+    const held = c.open(&path_buf, .{ .ACCMODE = .RDWR, .NOCTTY = true, .NONBLOCK = true });
+    try testing.expect(held >= 0);
+    defer _ = c.close(held);
+
     var before: Termios = undefined;
-    _ = tcgetattr(pair.master, &before);
+    try testing.expectEqual(@as(c_int, 0), tcgetattr(held, &before));
 
     var port = try Port.open(pair.path(), .{ .baud = 1200, .parity = .odd }, .{});
     port.close();
 
     var after: Termios = undefined;
-    _ = tcgetattr(pair.master, &after);
+    try testing.expectEqual(@as(c_int, 0), tcgetattr(held, &after));
     try testing.expectEqual(before.cflag, after.cflag);
     try testing.expectEqual(before.lflag, after.lflag);
     try testing.expectEqual(before.ospeed, after.ospeed);

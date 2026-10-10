@@ -65,16 +65,29 @@ The API documentation is generated from the doc comments and published at
   `tcsetattr` is asked again through `IOSSIOSPEED`, which takes two calls
   rather than one. There is no `CMSPAR`, so mark and space parity are refused.
   On macOS, open the `/dev/cu.*` node rather than the dial-in `/dev/tty.*`.
-  This backend is compiled by `zig build check` and its tests link for every
-  one of these but DragonFly, whose libc Zig does not ship; none of it has yet
-  been run on any of them.
+  This backend is compiled by `zig build check` for all five, and its tests
+  are run on FreeBSD in a virtual machine (see below); on the others they
+  have not yet been run.
 
 ## Testing
 
 ```console
 $ nix develop -c zig build test --summary all
 $ nix develop -c zig build check   # every other platform, compiled only
+$ nix build .#checks.x86_64-linux.freebsd --print-build-logs
 ```
+
+The last of these runs the tests on FreeBSD. It cross-compiles them for
+x86_64-freebsd, boots FreeBSD's own BASIC-CI image under QEMU and KVM, and
+hands the machine a NoCloud `cidata` drive holding the test binary and a
+`user-data` script. nuageinit, FreeBSD's cloud-init, runs that script on the
+first boot; it runs the tests and powers the machine off, and the check passes
+if the serial console says they passed. It needs no network and nothing logs
+in. The CI runs it on every push.
+
+`zig build test-exe -Dtarget=...` installs the test binary for any target as
+`zig-out/bin/serial-test`, to be carried to a machine that can run it — a Mac,
+say.
 
 The tests use pseudo-terminals in place of a cable, on Linux and on macOS and
 the BSDs alike. A pty cannot test everything, because it always reports eight
@@ -124,6 +137,11 @@ MIT; see [LICENSES/MIT.txt](LICENSES/MIT.txt). The project follows the
   <https://man7.org/linux/man-pages/man3/termios.3.html>
 - Apple Inc. *ioss.h — IOKit serial ioctls* (IOSerialFamily). Apple Open
   Source. <https://github.com/apple-oss-distributions/IOSerialFamily/blob/main/IOSerialFamily.kmodproj/ioss.h>
+- FreeBSD Project. *basic-ci.conf — the BASIC-CI virtual machine image
+  configuration*. FreeBSD source tree, releng/15.1.
+  <https://github.com/freebsd/freebsd-src/blob/releng/15.1/release/tools/basic-ci.conf>
+- FreeBSD Project. *nuageinit(7) — limited cloud-init configuration*.
+  FreeBSD manual pages. <https://man.freebsd.org/cgi/man.cgi?query=nuageinit&sektion=7>
 - FreeBSD Project. *termios(4) — general terminal line discipline*. FreeBSD
   manual pages. <https://man.freebsd.org/cgi/man.cgi?query=termios&sektion=4>
 - FreeBSD Project. *tty(4) — general terminal interface*. FreeBSD manual

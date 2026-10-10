@@ -14,12 +14,20 @@ pub fn build(b: *std.Build) void {
         .link_libc = needsLibC(target),
     });
 
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+    const mod_tests = b.addTest(.{
+        .name = "serial-test",
         .root_module = mod,
         // kcov reads nothing from the self-hosted backend's debug info.
         .use_llvm = true,
-    })).step);
+    });
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&b.addRunArtifact(mod_tests).step);
+
+    // The same tests as a program to carry to another machine, which is how
+    // they reach a platform this one cannot run: build with
+    // `-Dtarget=x86_64-freebsd`, say, and run zig-out/bin/serial-test there.
+    const test_exe_step = b.step("test-exe", "Install the test binary, for running elsewhere");
+    test_exe_step.dependOn(&b.addInstallArtifact(mod_tests, .{}).step);
 
     const check_step = b.step("check", "Compile everything without running it");
 

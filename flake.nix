@@ -36,6 +36,15 @@
         }
       );
 
+      # Only where an amd64 FreeBSD guest can be run under KVM.
+      checks.x86_64-linux =
+        let
+          pkgs = makePackages "x86_64-linux";
+        in
+        {
+          freebsd = pkgs.callPackage ./tests/freebsd { inherit (pkgs.callPackage ./package.nix { }) src; };
+        };
+
       devShells = forAllSystems (
         system:
         let
