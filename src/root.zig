@@ -17,7 +17,9 @@
 //!
 //! The backend is chosen at compile time. Linux talks to the kernel directly
 //! through `termios2`, which is what makes any baud rate expressible, and
-//! needs no libc. Windows uses the `DCB` through kernel32.
+//! needs no libc. macOS and the BSDs use their libc `termios`, whose speeds
+//! are already plain numbers, with `IOSSIOSPEED` for the rates a macOS
+//! driver will not take otherwise. Windows uses the `DCB` through kernel32.
 
 const builtin = @import("builtin");
 
@@ -41,14 +43,14 @@ pub const LineError = types.LineError;
 const backend = switch (builtin.target.os.tag) {
     .linux => @import("linux.zig"),
     .windows => @import("windows.zig"),
-    else => @compileError(
-        "zig-serial has no backend for " ++ @tagName(builtin.target.os.tag) ++
-            " yet: the BSDs and macOS want one on their libc termios, with" ++
-            " IOSSIOSPEED for arbitrary rates on macOS",
-    ),
+    .freebsd, .netbsd, .openbsd, .dragonfly => @import("bsd.zig"),
+    else => |os| if (os.isDarwin())
+        @import("bsd.zig")
+    else
+        @compileError("zig-serial has no backend for " ++ @tagName(os)),
 };
 
-/// A file descriptor on Linux, a `HANDLE` on Windows: whatever the platform
+/// A file descriptor on Linux, macOS and the BSDs, a `HANDLE` on Windows: whatever the platform
 /// waits on. An event loop polls `Port.handle` for readability.
 pub const Handle = backend.Handle;
 

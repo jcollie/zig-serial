@@ -41,16 +41,17 @@ pub const Parity = enum {
     none,
     even,
     odd,
-    /// The parity bit is always one.
+    /// The parity bit is always one. Linux and Windows only; macOS and the
+    /// BSDs have no `CMSPAR` and refuse it as `error.UnsupportedSetting`.
     mark,
-    /// The parity bit is always zero.
+    /// The parity bit is always zero. Linux and Windows only, as `mark`.
     space,
 };
 
 pub const StopBits = enum {
     one,
     /// Only meaningful with five data bits, and only Windows can ask for it;
-    /// Linux refuses it as `error.UnsupportedSetting`.
+    /// everywhere else it is refused as `error.UnsupportedSetting`.
     one_and_half,
     two,
 };
@@ -104,9 +105,10 @@ pub const Queue = enum {
 
 pub const OpenOptions = struct {
     /// Refuse the port if another process has it open through this library,
-    /// and keep any other process from opening it afterwards. On Linux that
-    /// is an advisory `flock` plus `TIOCEXCL`; a Windows serial port is
-    /// always exclusive, so this changes nothing there.
+    /// and keep any other process from opening it afterwards. On Linux,
+    /// macOS and the BSDs that is an advisory `flock` plus `TIOCEXCL`; a
+    /// Windows serial port is always exclusive, so this changes nothing
+    /// there.
     exclusive: bool = true,
     /// Return `error.WouldBlock` from `read` and `write` rather than waiting.
     /// What an event loop wants; a thread that does nothing but read wants
@@ -130,7 +132,8 @@ pub const ConfigureError = error{
     /// The driver refused the rate outright.
     UnsupportedBaud,
     /// The platform cannot express the setting at all: one and a half stop
-    /// bits on Linux, or `Flow.other` anywhere.
+    /// bits anywhere but Windows, mark or space parity on macOS and the BSDs,
+    /// or `Flow.other` anywhere.
     UnsupportedSetting,
     /// The device went away.
     InputOutput,

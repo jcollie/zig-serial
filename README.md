@@ -38,8 +38,9 @@ The API documentation is generated from the doc comments and published at
 - **Modem lines and line control.** `modem` reads the modem lines and `setLine`
   raises or lowers DTR and RTS. `sendBreak`, `drain` and `flush` do what their
   names say.
-- **Exclusive by default.** On Linux an advisory `flock` and `TIOCEXCL` keep a
-  second program off the port; on Windows a port is always exclusive.
+- **Exclusive by default.** On Linux, macOS and the BSDs an advisory `flock`
+  and `TIOCEXCL` keep a second program off the port; on Windows a port is
+  always exclusive.
 - **Non-blocking by default.** `read` and `write` return `error.WouldBlock`
   rather than waiting, which is what an event loop polling `Port.handle`
   wants. Pass `.nonblocking = false` for a thread that does nothing but read.
@@ -57,22 +58,31 @@ The API documentation is generated from the doc comments and published at
   be read back on Windows, so `modem` reports them as this port last set them.
   This backend is compiled by `zig build check` but has not been run against
   hardware.
-- **The BSDs and macOS** have no backend yet. They want one on their libc
-  `termios`, with `IOSSIOSPEED` on macOS for arbitrary rates.
+- **macOS, FreeBSD, NetBSD, OpenBSD and DragonFly.** One backend, on the libc
+  `termios` all five inherit from 4.4BSD, so a program for these links libc;
+  the module asks for it on its own. A `speed_t` there is the rate itself, so
+  any rate is asked for by number. A macOS driver that refuses a rate through
+  `tcsetattr` is asked again through `IOSSIOSPEED`, which takes two calls
+  rather than one. There is no `CMSPAR`, so mark and space parity are refused.
+  On macOS, open the `/dev/cu.*` node rather than the dial-in `/dev/tty.*`.
+  This backend is compiled by `zig build check` and its tests link for every
+  one of these but DragonFly, whose libc Zig does not ship; none of it has yet
+  been run on any of them.
 
 ## Testing
 
 ```console
 $ nix develop -c zig build test --summary all
-$ nix develop -c zig build check   # Windows and aarch64-linux, compiled only
+$ nix develop -c zig build check   # every other platform, compiled only
 ```
 
-The tests use pseudo-terminals in place of a cable. A pty cannot test
-everything, because it always reports eight data bits and no parity whatever it
-is told. So the conversion between `Settings` and `termios2` is tested on its
-own, in memory, and the pty tests cover what a pty does keep: the rate, the
-stop bits, flow control, raw data in both directions, exclusivity, and the
-restoring of the original settings on close.
+The tests use pseudo-terminals in place of a cable, on Linux and on macOS and
+the BSDs alike. A pty cannot test everything, because it always reports eight
+data bits and no parity whatever it is told. So the conversion between
+`Settings` and each platform's `termios` is tested on its own, in memory, and
+the pty tests cover what a pty does keep: the rate, the stop bits, flow
+control, raw data in both directions, exclusivity, and the restoring of the
+original settings on close.
 
 ## Where this came from
 
@@ -112,6 +122,12 @@ MIT; see [LICENSES/MIT.txt](LICENSES/MIT.txt). The project follows the
 - The Linux man-pages project. *termios(3) — get and set terminal attributes,
   line control, get and set baud rate*. Linux manual pages.
   <https://man7.org/linux/man-pages/man3/termios.3.html>
+- Apple Inc. *ioss.h — IOKit serial ioctls* (IOSerialFamily). Apple Open
+  Source. <https://github.com/apple-oss-distributions/IOSerialFamily/blob/main/IOSerialFamily.kmodproj/ioss.h>
+- FreeBSD Project. *termios(4) — general terminal line discipline*. FreeBSD
+  manual pages. <https://man.freebsd.org/cgi/man.cgi?query=termios&sektion=4>
+- FreeBSD Project. *tty(4) — general terminal interface*. FreeBSD manual
+  pages. <https://man.freebsd.org/cgi/man.cgi?query=tty&sektion=4>
 - Microsoft. *COMMTIMEOUTS structure (winbase.h)*. Microsoft Learn.
   <https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-commtimeouts>
 - Microsoft. *DCB structure (winbase.h)*. Microsoft Learn.

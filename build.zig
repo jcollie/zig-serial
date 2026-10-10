@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = needsLibC(target),
     });
 
     const test_step = b.step("test", "Run tests");
@@ -22,24 +23,32 @@ pub fn build(b: *std.Build) void {
 
     const check_step = b.step("check", "Compile everything without running it");
 
-    // Windows cannot be tested from here, but it can be compiled, and a
-    // backend nobody compiles is a backend that has stopped compiling.
-    const windows_lib = b.addTest(.{
-        .name = "serial-windows",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows }),
-            .optimize = optimize,
-        }),
-    });
-    check_step.dependOn(&windows_lib.step);
-    check_step.dependOn(&b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .linux }),
-            .optimize = optimize,
-        }),
-    }).step);
+    // The other platforms cannot be tested from here, but they can be
+    // compiled, and a backend nobody compiles is a backend that has stopped
+    // compiling. Nothing asks for the binaries, so none is linked -- which is
+    // what lets DragonFly, whose libc Zig does not ship, be checked at all.
+    for ([_]std.Target.Query{
+        .{ .cpu_arch = .x86_64, .os_tag = .windows },
+        .{ .cpu_arch = .aarch64, .os_tag = .linux },
+        .{ .cpu_arch = .x86_64, .os_tag = .macos },
+        .{ .cpu_arch = .aarch64, .os_tag = .macos },
+        .{ .cpu_arch = .x86_64, .os_tag = .freebsd },
+        .{ .cpu_arch = .aarch64, .os_tag = .freebsd },
+        .{ .cpu_arch = .x86_64, .os_tag = .netbsd },
+        .{ .cpu_arch = .x86_64, .os_tag = .openbsd },
+        .{ .cpu_arch = .x86_64, .os_tag = .dragonfly },
+    }) |query| {
+        const other = b.resolveTargetQuery(query);
+        check_step.dependOn(&b.addTest(.{
+            .name = b.fmt("serial-{s}-{s}", .{ @tagName(query.cpu_arch.?), @tagName(query.os_tag.?) }),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/root.zig"),
+                .target = other,
+                .optimize = optimize,
+                .link_libc = needsLibC(other),
+            }),
+        }).step);
+    }
 
     // -- documentation -------------------------------------------------------
     //
@@ -85,4 +94,14 @@ pub fn build(b: *std.Build) void {
         b.addTest(.{ .root_module = docs_server.root_module }),
     ).step);
     check_step.dependOn(&docs_server.step);
+}
+
+/// The Linux backend is raw system calls and the Windows one is kernel32, but
+/// macOS and the BSDs are reached through their libc, which is the only
+/// interface to the terminal those systems promise to keep stable.
+fn needsLibC(target: std.Build.ResolvedTarget) ?bool {
+    return switch (target.result.os.tag) {
+        .linux, .windows => null,
+        else => true,
+    };
 }

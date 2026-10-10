@@ -39,6 +39,6 @@ stdenv.mkDerivation {
     description = "Serial ports for Zig";
     homepage = "https://git.jcollie.dev/jeff/zig-serial";
     license = lib.licenses.mit;
-    platforms = lib.platforms.linux ++ lib.platforms.windows;
+    platforms = lib.platforms.unix ++ lib.platforms.windows;
   };
 }
